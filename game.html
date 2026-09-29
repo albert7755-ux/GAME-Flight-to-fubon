@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>富邦大樓環繞飛行</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Layout: full-screen 3D cockpit view; HUD glass panels float over the sky, instruments sit in a dashboard along the bottom. Single deliberate look (daylight sky + dark cockpit HUD). */
+:root{
+  --hud:rgba(7,24,40,.74);
+  --hud-strong:rgba(6,18,31,.92);
+  --fg:#eaf5ff;
+  --dim:#9db7cb;
+  --gold:#ffc93c;
+  --teal:#2fd3bf;
+  --warn:#ff7a59;
+  --line:rgba(234,245,255,.16);
+  --f-ui:"Noto Sans TC",system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+  --f-num:"Chakra Petch","Noto Sans TC",ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{margin:0;background:#bcdcf7;color:var(--fg);font-family:var(--f-ui);overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block}
+
+/* ---------- HUD ---------- */
+.panel{background:var(--hud);border:1px solid var(--line);border-radius:12px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#mission{position:fixed;left:16px;top:calc(16px + env(safe-area-inset-top,0px));max-width:300px;padding:12px 14px;font-size:13px;line-height:1.6}
+#mission b{color:var(--gold)}
+#mission .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn{font-family:var(--f-ui);font-size:13px;font-weight:700;color:#10202e;background:var(--gold);border:0;border-radius:8px;padding:7px 12px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.btn:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+
+#info{position:fixed;right:16px;top:calc(16px + env(safe-area-inset-top,0px));width:272px;padding:12px 14px}
+#info h2{margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:.08em;display:flex;justify-content:space-between;align-items:baseline;color:var(--dim)}
+#info h2 span{font-family:var(--f-num);color:var(--gold);font-size:15px;letter-spacing:0}
+#info ol{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+#info li{display:grid;grid-template-columns:22px 82px 1fr;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.04);font-size:13px;transition:background .4s}
+#info li .n{font-family:var(--f-num);font-weight:700;color:var(--dim);text-align:center}
+#info li .k{color:var(--dim);font-size:12px}
+#info li .v{color:rgba(234,245,255,.35);font-size:12px;min-width:0;overflow-wrap:anywhere}
+#info li.on{background:rgba(47,211,191,.14)}
+#info li.on .n{color:var(--teal)}
+#info li.on .v{color:var(--fg);font-weight:700;font-size:14px;font-family:var(--f-num),var(--f-ui)}
+#info li.perfect .n{color:var(--gold)}
+
+#cross{position:fixed;left:50%;top:50%;width:34px;height:34px;transform:translate(-50%,-50%);pointer-events:none}
+#guide{position:fixed;left:50%;top:50%;width:0;height:0;pointer-events:none}
+#guide i{position:absolute;left:-14px;top:-14px;width:28px;height:28px;display:block}
+#guide i::before{content:"";position:absolute;left:4px;top:3px;border-left:22px solid var(--gold);border-top:11px solid transparent;border-bottom:11px solid transparent;filter:drop-shadow(0 0 4px rgba(0,0,0,.6))}
+
+#warn{position:fixed;left:50%;top:26%;transform:translateX(-50%);background:var(--warn);color:#fff;font-weight:900;padding:8px 18px;border-radius:999px;font-size:15px;letter-spacing:.06em;pointer-events:none}
+#hint{position:fixed;left:50%;top:calc(26% + 48px);transform:translateX(-50%);color:var(--fg);background:var(--hud);padding:6px 14px;border-radius:999px;font-size:13px;pointer-events:none;white-space:nowrap}
+
+#toast{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);min-width:260px;max-width:calc(100% - 32px);text-align:center;padding:16px 28px 18px;background:var(--hud-strong);border:1px solid var(--gold);border-radius:14px;pointer-events:none;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+#toast.show{animation:pop 2.8s ease forwards}
+@keyframes pop{0%{opacity:0;transform:translate(-50%,-40%) scale(.9)}10%{opacity:1;transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-56%)}}
+#toast .tag{font-size:12px;letter-spacing:.14em;color:var(--gold);font-weight:700}
+#toast .k{margin-top:6px;font-size:14px;color:var(--dim)}
+#toast .v{margin-top:2px;font-size:30px;font-weight:900;font-family:var(--f-num),var(--f-ui);color:var(--fg);text-wrap:balance}
+
+/* ---------- Cockpit ---------- */
+.strut{position:fixed;bottom:70px;width:16px;height:78vh;background:linear-gradient(90deg,#0c141c,#26323d 55%,#0c141c);pointer-events:none;border-radius:8px}
+.strut.l{left:4%;transform-origin:bottom center;transform:rotate(16deg)}
+.strut.r{right:4%;transform-origin:bottom center;transform:rotate(-16deg)}
+#dash{position:fixed;left:0;right:0;bottom:0;padding:22px 16px calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(180deg,#1b2733,#0a1118);clip-path:polygon(0 26px,14% 0,86% 0,100% 26px,100% 100%,0 100%);display:flex;justify-content:center;align-items:flex-end;gap:clamp(14px,4vw,44px);flex-wrap:wrap}
+.g{display:flex;flex-direction:column;align-items:center;min-width:64px}
+.g b{font-family:var(--f-num);font-size:24px;font-weight:700;color:var(--teal);font-variant-numeric:tabular-nums;line-height:1.1}
+.g small{font-size:11px;color:var(--dim);letter-spacing:.1em;margin-top:2px}
+.prog{flex-basis:100%;max-width:520px;height:5px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;order:9}
+.prog i{display:block;height:100%;width:0;background:var(--gold)}
+
+/* ---------- Touch ---------- */
+#joy{position:fixed;left:18px;bottom:130px;width:132px;height:132px;border-radius:50%;background:rgba(7,24,40,.35);border:2px solid rgba(234,245,255,.35);touch-action:none}
+#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;border-radius:50%;background:rgba(255,201,60,.9);transform:translate(-50%,-50%);pointer-events:none}
+#joy small{position:absolute;left:0;right:0;top:-22px;text-align:center;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+#tbtns{position:fixed;right:18px;bottom:140px;display:flex;flex-direction:column;gap:10px}
+#tbtns button{width:74px;height:50px;border-radius:12px;font-size:14px;font-weight:700;font-family:var(--f-ui);border:1px solid var(--line);background:var(--hud);color:var(--fg);touch-action:none}
+#tbtns button.boost{background:rgba(255,201,60,.9);color:#10202e}
+
+/* ---------- Overlays ---------- */
+.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(4,14,26,.5);padding-inline:16px;overflow-y:auto}
+.card{width:100%;max-width:470px;background:var(--hud-strong);border:1px solid var(--line);border-radius:16px;padding:24px 24px 22px;margin-block:24px}
+.card .eyebrow{font-size:12px;letter-spacing:.18em;color:var(--gold);font-weight:700}
+.card h1{margin:6px 0 10px;font-size:28px;font-weight:900;line-height:1.25;text-wrap:balance}
+.card p{margin:0 0 14px;font-size:14px;line-height:1.7;color:var(--dim)}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:13px;margin:0 0 18px;align-items:center}
+kbd{font-family:var(--f-num);font-size:12px;background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--fg);white-space:nowrap}
+.card .btn{font-size:16px;padding:11px 22px}
+table.sum{width:100%;border-collapse:collapse;margin:4px 0 14px;font-size:14px}
+table.sum td{padding:9px 4px;border-bottom:1px solid var(--line)}
+table.sum td:first-child{color:var(--dim);width:40%}
+table.sum td:last-child{font-weight:700;font-family:var(--f-num),var(--f-ui);font-size:16px}
+.stats{display:flex;gap:24px;margin:0 0 14px}
+.stats div{display:flex;flex-direction:column}
+.stats b{font-family:var(--f-num);font-size:26px;color:var(--gold)}
+.stats small{font-size:12px;color:var(--dim)}
+.fine{font-size:11px!important;color:rgba(157,183,203,.8)!important;margin-top:12px!important;margin-bottom:0!important}
+
+.card.wide{max-width:900px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px}
+.card.wide>div{min-width:0}
+.field{display:flex;flex-direction:column;gap:6px;margin:0 0 14px}
+.field label{font-size:12px;color:var(--dim);letter-spacing:.08em}
+.field input{font:500 16px var(--f-ui);color:var(--fg);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px;padding:10px 12px;outline:none}
+.field input:focus{border-color:var(--gold)}
+.rule{font-size:12px!important;background:rgba(255,201,60,.08);border:1px solid rgba(255,201,60,.25);border-radius:8px;padding:8px 10px;color:var(--fg)!important}
+.lb h3{margin:0 0 8px;font-size:15px;display:flex;justify-content:space-between;align-items:baseline}
+.lb h3 small{font-size:12px;color:var(--dim);font-weight:400}
+.lbwrap{max-height:340px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+table.lbt{width:100%;border-collapse:collapse;font-size:13px}
+table.lbt th{position:sticky;top:0;background:#0c1b2a;color:var(--dim);font-weight:500;font-size:11px;letter-spacing:.08em;text-align:left;padding:7px 8px}
+table.lbt td{padding:7px 8px;border-top:1px solid var(--line)}
+table.lbt td.num,table.lbt th.num{text-align:right;font-family:var(--f-num);font-variant-numeric:tabular-nums}
+table.lbt td.rk{font-family:var(--f-num);font-weight:700;color:var(--dim);width:28px}
+table.lbt tr:nth-child(-n+3) td.rk{color:var(--gold)}
+table.lbt tr.me td{background:rgba(47,211,191,.16);color:var(--fg);font-weight:700}
+.lbempty{padding:18px 10px;text-align:center;font-size:13px;color:var(--dim)}
+.lbstatus{font-size:11px;color:var(--dim);margin-top:6px;display:flex;justify-content:space-between;gap:8px}
+.lbstatus button{font:inherit;color:var(--gold);background:none;border:0;cursor:pointer;padding:0}
+.note{font-size:13px!important;margin:0 0 12px!important;color:var(--fg)!important}
+.note.ok{color:var(--teal)!important}.note.err{color:var(--warn)!important}
+.myrank{font-size:15px;margin:0 0 12px;color:var(--fg)}
+.myrank b{color:var(--gold);font-family:var(--f-num);font-size:22px}
+@media (max-width:760px){.card.wide{grid-template-columns:1fr;gap:18px}.lbwrap{max-height:260px}}
+@media (max-width:700px){
+  #mission{display:none}
+  #info{left:10px;right:10px;width:auto;top:calc(8px + env(safe-area-inset-top,0px));padding:8px 10px}
+  #info h2{margin-bottom:4px;font-size:12px}
+  #info ol{gap:3px}
+  #info li{padding:3px 6px;grid-template-columns:18px 76px 1fr}
+  #info li.on .v{font-size:13px}
+  .strut{display:none}
+  .g b{font-size:18px}
+  .g{min-width:52px}
+  #dash{gap:12px;padding-top:18px}
+  #toast .v{font-size:24px}
+  #warn{top:44%}
+  #hint{top:calc(44% + 44px)}
+}
+@media (prefers-reduced-motion:reduce){#toast.show{animation-duration:3.2s}}
+</style>
+
+</head>
+<body>
+<div id="stage"></div>
+
+<div class="strut l"></div><div class="strut r"></div>
+
+<svg id="cross" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="6" fill="none" stroke="#eaf5ff" stroke-width="1.6"/><path d="M1 17h8M25 17h8M17 1v8M17 25v8" stroke="#eaf5ff" stroke-width="1.6"/></svg>
+<div id="guide" hidden><i></i></div>
+
+<div id="mission" class="panel">
+  <div><b>任務</b>：沿著<b>黃色虛線</b>，從頂樓繞大樓一圈，降落到 1F 大廳。穿過金環就能解鎖債券資訊。</div>
+  <div class="row"><button class="btn ghost" id="btnReset" type="button">回到航線 (R)</button></div>
+</div>
+
+<section id="info" class="panel" aria-label="債券資訊">
+  <h2>債券情報 <span id="count">0 / 5</span></h2>
+  <ol id="list"></ol>
+</section>
+
+<div id="warn" hidden>小心大樓！</div>
+<div id="hint" hidden>偏離航線了，按 R 或「回航線」回到黃線</div>
+
+<div id="toast" hidden><div class="tag" id="tTag"></div><div class="k" id="tK"></div><div class="v" id="tV"></div></div>
+
+<div id="dash">
+  <div class="g"><b id="gAlt">0</b><small>高度 m</small></div>
+  <div class="g"><b id="gFloor">RF</b><small>樓層</small></div>
+  <div class="g"><b id="gSpd">0</b><small>速度 km/h</small></div>
+  <div class="g"><b id="gTime">0:00</b><small>時間</small></div>
+  <div class="prog"><i id="gProg"></i></div>
+</div>
+
+<div id="joy" hidden><small>拖曳操控</small><div id="knob"></div></div>
+<div id="tbtns" hidden>
+  <button type="button" class="boost" id="tBoost">加速</button>
+  <button type="button" id="tBrake">減速</button>
+  <button type="button" id="tReset">回航線</button>
+</div>
+
+<div class="ov" id="startOv">
+  <div class="card wide">
+   <div>
+    <div class="eyebrow">WMBB26040004 · 飛行任務</div>
+    <h1>富邦大樓環繞飛行</h1>
+    <p>從大樓頂樓起飛，沿著黃色虛線繞大樓一圈往下飛，最後降落 1F 大廳。途中有 5 個金環，每穿過一個就解鎖一項 Alphabet 4 的債券資訊。</p>
+    <div class="keys">
+      <span><kbd>↑</kbd> <kbd>W</kbd></span><span>機頭往上（爬升）</span>
+      <span><kbd>↓</kbd> <kbd>S</kbd></span><span>機頭往下（下降）</span>
+      <span><kbd>←</kbd><kbd>→</kbd> <kbd>A</kbd><kbd>D</kbd></span><span>左轉 / 右轉</span>
+      <span><kbd>Shift</kbd> / <kbd>空白鍵</kbd></span><span>加速 / 減速</span>
+      <span><kbd>R</kbd></span><span>飛丟了？回到黃線上</span>
+    </div>
+    <p id="touchNote" hidden>手機：左下搖桿往上推＝爬升、往下＝下降、左右＝轉彎；右側按鈕可加速、減速。</p>
+    <p class="rule">排名規則：成績＝飛行時間＋每漏掉一個金環加 5 秒，秒數越少排越前面。同一個名字只留最好的一次。</p>
+    <div class="field">
+      <label for="myName">你的名字（上排行榜用）</label>
+      <input id="myName" type="text" maxlength="12" autocomplete="off" placeholder="例如：西湖 王小明">
+    </div>
+    <button class="btn" id="btnStart" type="button">試飛（不上榜）</button>
+   </div>
+   <div class="lb">
+    <h3>排行榜 <small id="lbCount1"></small></h3>
+    <div class="lbwrap"><table class="lbt"><thead><tr><th>#</th><th>名字</th><th class="num">金環</th><th class="num">成績</th></tr></thead><tbody id="lbBody1"></tbody></table><div class="lbempty" id="lbEmpty1">還沒有人完成，第一名等你來拿。</div></div>
+    <div class="lbstatus"><span id="lbStatus1">讀取中…</span><button type="button" class="lbRefresh">重新整理</button></div>
+   </div>
+  </div>
+</div>
+
+<div class="ov" id="endOv" hidden>
+  <div class="card wide">
+   <div>
+    <div class="eyebrow">降落完成 · 1F 大廳</div>
+    <h1>任務完成，債券資訊到手</h1>
+    <div class="stats">
+      <div><b id="sScore">0:00.0</b><small>成績</small></div>
+      <div><b id="sTime">0:00.0</b><small>飛行時間</small></div>
+      <div><b id="sPerfect">0/5</b><small>穿越金環</small></div>
+    </div>
+    <p class="note" id="winNote"></p>
+    <table class="sum" id="sumTable"></table>
+    <button class="btn" id="btnAgain" type="button">再飛一次</button>
+    <p class="fine">本遊戲僅供內部教育訓練使用，非投資建議。債券價格與殖利率隨市場變動，實際條件以正式文件為準。</p>
+   </div>
+   <div class="lb">
+    <p class="myrank" id="myRank" hidden></p>
+    <h3>排行榜 <small id="lbCount2"></small></h3>
+    <div class="lbwrap"><table class="lbt"><thead><tr><th>#</th><th>名字</th><th class="num">金環</th><th class="num">成績</th></tr></thead><tbody id="lbBody2"></tbody></table><div class="lbempty" id="lbEmpty2">還沒有人完成，第一名等你來拿。</div></div>
+    <div class="lbstatus"><span id="lbStatus2">讀取中…</span><button type="button" class="lbRefresh">重新整理</button></div>
+   </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const V3=THREE.Vector3;
+
+/* ---------- Bond info ---------- */
+const INFO=[
+  {k:'債券名稱',v:'Alphabet 4'},
+  {k:'債券代碼',v:'WMBB26040004'},
+  {k:'Offer Price',v:'94.88'},
+  {k:'YTM',v:'5.51%'},
+  {k:'債券順位',v:'優先無擔保'}
+];
+const NUMS=['①','②','③','④','⑤'];
+
+/* ===== Supabase 連線（由 app.py 從 secrets 填入） ===== */
+var SB_URL="__SUPABASE_URL__";
+var SB_KEY="__SUPABASE_ANON_KEY__";
+var BOARD_ID="alphabet4-flight";   // 換一檔債就換一個 id，排行榜就分開算
+var PENALTY=5;                     // 每漏掉一個金環加幾秒（改這裡也要改 schema.sql 的檢查條件）
+var SB_ON=SB_URL.indexOf('http')===0&&SB_KEY.length>20;
+var LS_NAME='flight_name',LS_BEST='flight_best_'+BOARD_ID;
+function lsGet(k,f){try{var r=localStorage.getItem(k);return r===null?f:JSON.parse(r);}catch(e){return f;}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+function fmt1(s){s=Math.max(0,s);var m=Math.floor(s/60),x=(s-m*60).toFixed(1);return m+':'+(x<10?'0':'')+x;}
+var LB={rows:[],all:[],myName:''};
+$('list').innerHTML=INFO.map((it,i)=>`<li id="li${i}"><span class="n">${i+1}</span><span class="k">${it.k}</span><span class="v">穿越金環 ${NUMS[i]} 解鎖</span></li>`).join('');
+
+/* ---------- Renderer / scene ---------- */
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+$('stage').appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+const HORIZON=0xd6eafa;
+scene.fog=new THREE.Fog(HORIZON,380,1500);
+const camera=new THREE.PerspectiveCamera(72,1,0.3,3200);
+camera.rotation.order='YXZ';
+function resize(){const w=window.innerWidth,h=window.innerHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.fov=w<h?84:72;camera.updateProjectionMatrix();}
+window.addEventListener('resize',resize);resize();
+
+/* sky dome */
+(function(){
+  const R=2400,g=new THREE.SphereGeometry(R,32,20),p=g.attributes.position,cols=[];
+  const top=new THREE.Color(0x1466d6),hor=new THREE.Color(HORIZON),low=new THREE.Color(0xc4d8e8);
+  for(let i=0;i<p.count;i++){const y=p.getY(i)/R;const c=y>0?hor.clone().lerp(top,Math.pow(y,0.5)):low;cols.push(c.r,c.g,c.b);}
+  g.setAttribute('color',new THREE.Float32BufferAttribute(cols,3));
+  const sky=new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.BackSide,fog:false,depthWrite:false}));
+  sky.renderOrder=-1;scene.add(sky);window.__sky=sky;
+})();
+
+scene.add(new THREE.HemisphereLight(0xe4f2ff,0x7c8a6c,0.78));
+const sun=new THREE.DirectionalLight(0xffffff,0.8);sun.position.set(-260,420,340);scene.add(sun);
+
+/* ---------- Textures ---------- */
+function canvasTex(w,h,draw){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'),w,h);const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;return t;}
+// Each texture tile = 16m wide (4 bays) x 16m tall (4 floors)
+const glassTex=canvasTex(256,256,(g,w,h)=>{
+  for(let fy=0;fy<4;fy++)for(let bx=0;bx<4;bx++){
+    const x=bx*64,y=fy*64,l=44+Math.random()*12;
+    g.fillStyle=`hsl(${200+Math.random()*8},52%,${l}%)`;g.fillRect(x,y,64,64);
+    const gr=g.createLinearGradient(x,y,x+64,y+64);gr.addColorStop(0,'rgba(255,255,255,.22)');gr.addColorStop(1,'rgba(0,30,60,.18)');g.fillStyle=gr;g.fillRect(x,y,64,64);
+  }
+  g.fillStyle='rgba(232,242,248,.92)';for(let i=0;i<4;i++)g.fillRect(0,i*64,w,5);
+  g.fillStyle='rgba(205,225,236,.75)';for(let i=0;i<4;i++)g.fillRect(i*64,0,3,h);
+});
+const darkGlassTex=canvasTex(256,256,(g,w,h)=>{
+  g.fillStyle='#3d6f92';g.fillRect(0,0,w,h);
+  for(let fy=0;fy<4;fy++)for(let bx=0;bx<4;bx++){g.fillStyle=`hsl(205,45%,${32+Math.random()*10}%)`;g.fillRect(bx*64+3,fy*64+6,58,56);}
+  g.fillStyle='rgba(225,235,240,.8)';for(let i=0;i<4;i++)g.fillRect(0,i*64,w,4);
+});
+const panelTex=canvasTex(256,256,(g,w,h)=>{
+  g.fillStyle='#1d4f86';g.fillRect(0,0,w,h);
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++){g.fillStyle=`hsl(210,60%,${30+Math.random()*14}%)`;g.fillRect(x*32+2,y*32+2,28,28);}
+});
+const aptTex=canvasTex(256,256,(g,w,h)=>{
+  g.fillStyle='#d8dad8';g.fillRect(0,0,w,h);
+  for(let fy=0;fy<4;fy++)for(let bx=0;bx<4;bx++){
+    const x=bx*64,y=fy*64;
+    g.fillStyle=`hsl(200,12%,${34+Math.random()*16}%)`;g.fillRect(x+12,y+16,40,30);
+    g.fillStyle='#eceeec';g.fillRect(x+6,y+48,52,6);
+  }
+});
+const officeTex=canvasTex(256,256,(g,w,h)=>{
+  g.fillStyle='#c3c6c9';g.fillRect(0,0,w,h);
+  for(let fy=0;fy<4;fy++){g.fillStyle=`hsl(205,18%,${30+Math.random()*12}%)`;g.fillRect(0,fy*64+18,w,26);}
+  g.fillStyle='#b4b8bc';for(let i=0;i<16;i++)g.fillRect(i*16,0,3,h);
+});
+const brickTex=canvasTex(256,256,(g,w,h)=>{
+  g.fillStyle='#a58c78';g.fillRect(0,0,w,h);
+  for(let fy=0;fy<4;fy++)for(let bx=0;bx<4;bx++){g.fillStyle=`hsl(30,10%,${28+Math.random()*14}%)`;g.fillRect(bx*64+14,fy*64+16,36,32);}
+});
+
+/* ---------- Building helpers ---------- */
+const colliders=[];
+const white=new THREE.MeshLambertMaterial({color:0xf2f5f6});
+function makeBox(w,h,d,x,y0,z,tex,opt){
+  opt=opt||{};
+  const mat=rw=>{const t=tex.clone();t.needsUpdate=true;t.repeat.set(Math.max(rw/16,.25),h/16);return new THREE.MeshPhongMaterial({map:t,shininess:opt.shine?90:8,specular:opt.shine?0x9fc0dd:0x111111});};
+  const roofM=new THREE.MeshLambertMaterial({color:opt.roof||0xd6d9db});
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),[mat(d),mat(d),roofM,roofM,mat(w),mat(w)]);
+  m.position.set(x,y0+h/2,z);scene.add(m);
+  if(opt.collide!==false)colliders.push(new THREE.Box3().setFromObject(m));
+  return m;
+}
+function wbox(w,h,d,x,y0,z,collide){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),white);m.position.set(x,y0+h/2,z);scene.add(m);
+  if(collide!==false)colliders.push(new THREE.Box3().setFromObject(m));return m;
+}
+
+/* ---------- The tower (modelled on the photo) ---------- */
+// main glass shaft: 28 floors x 4m
+makeBox(34,112,24,0,0,0,glassTex,{shine:true});
+// convex curved front facade
+(function(){
+  const R=60,half=Math.asin(16/R),H=108;
+  const t=glassTex.clone();t.needsUpdate=true;t.repeat.set(32/16,H/16);
+  const cyl=new THREE.Mesh(new THREE.CylinderGeometry(R,R,H,28,1,true,-half,2*half),new THREE.MeshPhongMaterial({map:t,shininess:100,specular:0xa8c8e4,side:THREE.DoubleSide}));
+  cyl.position.set(0,4+H/2,12-R*Math.cos(half));scene.add(cyl);
+  colliders.push(new THREE.Box3(new V3(-16,4,11),new V3(16,112,12+R*(1-Math.cos(half)))));
+})();
+// white vertical frames
+wbox(2.2,136,2.2,-17.6,0,13.2);
+wbox(2.2,112,2.2,17.6,0,13.2);
+wbox(1.6,112,1.6,-17.6,0,-12.4);
+wbox(1.6,112,1.6,17.6,0,-12.4);
+// narrow lower wing on the left
+makeBox(6,104,18,-20.4,0,-2,darkGlassTex,{shine:true});
+wbox(7,1.2,19,-20.4,104,-2);
+// roof band
+wbox(35.6,1.4,25.6,0,111.2,0.4);
+// crown: white box with blue glass panel on the front (left), lower glass block on the right
+makeBox(22,22,22,-6,112.6,-0.5,darkGlassTex,{roof:0xe8ecee});
+wbox(1.4,24,24.4,-17.3,112.6,0);
+wbox(1.4,24,24.4,5.3,112.6,0);
+wbox(24,1.6,24.4,-6,135,0);
+(function(){
+  const t=panelTex.clone();t.needsUpdate=true;t.repeat.set(1,1);
+  const m=new THREE.Mesh(new THREE.BoxGeometry(15,16,1.6),[white,white,white,white,new THREE.MeshPhongMaterial({map:t,shininess:90,specular:0x88aaff}),white]);
+  m.position.set(-6.3,125,12.2);scene.add(m);colliders.push(new THREE.Box3().setFromObject(m));
+})();
+makeBox(11,10,22,11.5,112.6,-0.5,glassTex,{shine:true,roof:0xe8ecee});
+wbox(11.6,1.2,22.6,11.5,122.6,-0.5);
+// lobby entrance
+(function(){
+  const lobby=new THREE.Mesh(new THREE.PlaneGeometry(12,3.4),new THREE.MeshBasicMaterial({color:0xffe1a3}));
+  lobby.position.set(0,1.7,12.06);scene.add(lobby);
+  wbox(16,0.6,5,0,4,14.6,false);
+  const pad=new THREE.Mesh(new THREE.RingGeometry(3.2,4,40),new THREE.MeshBasicMaterial({color:0xffc93c,side:THREE.DoubleSide}));
+  pad.rotation.x=-Math.PI/2;pad.position.set(0,0.12,22);scene.add(pad);
+})();
+
+/* ---------- Neighbourhood ---------- */
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(5000,5000),new THREE.MeshLambertMaterial({color:0xaeb2a4}));
+ground.rotation.x=-Math.PI/2;scene.add(ground);
+function flat(w,d,x,z,color,y){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),new THREE.MeshLambertMaterial({color}));m.rotation.x=-Math.PI/2;m.position.set(x,y||0.05,z);scene.add(m);return m;}
+flat(70,46,0,20,0xd5d3cc);          // plaza
+flat(5000,14,0,66,0x55595e,0.08);   // street in front
+flat(12,5000,-66,0,0x55595e,0.07);  // street on the left
+for(let i=-30;i<=30;i++){flat(3,0.4,i*9,66,0xf0f0e8,0.1);}
+// zebra crossing in front of the plaza
+for(let i=0;i<8;i++){flat(1.4,12,-9+i*2.6,66,0xf2f2ea,0.11);}
+
+// nearby landmarks from the photo: tall apartment on the right, office block on the left
+makeBox(40,82,34,110,0,8,aptTex,{roof:0xcfd2d0});
+makeBox(22,70,24,98,0,-48,aptTex,{roof:0xcfd2d0});
+makeBox(34,46,30,-96,0,22,officeTex,{roof:0xb9bcbe});
+makeBox(26,34,26,-96,0,-30,brickTex,{roof:0x9b8f86});
+
+// random city blocks further out
+(function(){
+  const texs=[aptTex,officeTex,brickTex,officeTex];
+  let placed=0,tries=0;
+  while(placed<90&&tries<900){
+    tries++;
+    const a=Math.random()*Math.PI*2,d=125+Math.random()*650;
+    const x=Math.cos(a)*d,z=Math.sin(a)*d;
+    if(Math.abs(z-66)<14||Math.abs(x+66)<14)continue;
+    const w=14+Math.random()*22,dd=14+Math.random()*22;
+    const h=d>350?12+Math.random()*60:8+Math.random()*34;
+    const box=new THREE.Box3(new V3(x-w/2-4,0,z-dd/2-4),new V3(x+w/2+4,h,z+dd/2+4));
+    if(colliders.some(c=>c.intersectsBox(box)))continue;
+    makeBox(w,h,dd,x,0,z,texs[placed%4],{roof:[0xcfd1cf,0xb8bab9,0xa9a39c,0xd8d2c8][placed%4]});
+    placed++;
+  }
+})();
+
+// distant mountains (hazy, no fog so they stay visible)
+(function(){
+  const mats=[new THREE.MeshBasicMaterial({color:0x9fb6c2,fog:false}),new THREE.MeshBasicMaterial({color:0x8ea8b5,fog:false})];
+  for(let i=0;i<14;i++){const mat=mats[i%2];
+    const a=(i/14)*Math.PI*2+Math.random()*0.3,d=1500+Math.random()*450;
+    const r=300+Math.random()*260,h=70+Math.random()*90;
+    const m=new THREE.Mesh(new THREE.ConeGeometry(r,h,7),mat);
+    m.position.set(Math.cos(a)*d,h/2-6,Math.sin(a)*d);scene.add(m);
+  }
+})();
+
+// clouds
+(function(){
+  const t=canvasTex(256,128,(g,w,h)=>{
+    for(let i=0;i<14;i++){const x=40+Math.random()*176,y=50+Math.random()*40,r=22+Math.random()*30;
+      const gr=g.createRadialGradient(x,y,0,x,y,r);gr.addColorStop(0,'rgba(255,255,255,.95)');gr.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=gr;g.fillRect(0,0,w,h);}
+  });
+  for(let i=0;i<26;i++){
+    const s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,fog:false,transparent:true,opacity:.85,depthWrite:false}));
+    const a=Math.random()*Math.PI*2,d=500+Math.random()*1300;
+    s.position.set(Math.cos(a)*d,230+Math.random()*260,Math.sin(a)*d);
+    const sc=180+Math.random()*260;s.scale.set(sc,sc*0.45,1);scene.add(s);
+  }
+})();
+
+// trees (kept clear of the flight path)
+(function(){
+  const N=260;
+  const mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0),new THREE.MeshPhongMaterial({flatShading:true,shininess:0}),N);
+  const dm=new THREE.Object3D(),col=new THREE.Color();let n=0,tries=0;
+  while(n<N&&tries<5000){
+    tries++;
+    const x=(Math.random()*2-1)*170,z=(Math.random()*2-1)*170,r=Math.hypot(x,z);
+    if(r<18||(r>42&&r<72))continue;
+    if(Math.abs(x)<11&&z>8&&z<62)continue;
+    if(Math.abs(z-66)<9||Math.abs(x+66)<8)continue;
+    const s=2.4+Math.random()*3;
+    const p=new V3(x,s*0.9,z);
+    if(colliders.some(c=>c.clone().expandByScalar(s+1).containsPoint(p)))continue;
+    dm.position.copy(p);dm.scale.set(s,s*0.95,s);dm.rotation.y=Math.random()*6;dm.updateMatrix();
+    mesh.setMatrixAt(n,dm.matrix);
+    col.setHSL(0.27+Math.random()*0.06,0.5+Math.random()*0.2,0.3+Math.random()*0.12);mesh.setColorAt(n,col);n++;
+  }
+  mesh.count=n;scene.add(mesh);
+})();
+
+/* ---------- Flight path (roof -> one lap around -> 1F lobby) ---------- */
+const pathCtl=[new V3(44,141,118),new V3(24,142,78)];
+(function(){
+  const N=48,R0=56,yTop=142,yBot=10,endT=0.93;
+  for(let i=0;i<=N;i++){
+    const t=(i/N)*endT,th=Math.PI/2+Math.PI*2*t;
+    pathCtl.push(new V3(R0*Math.cos(th),yTop-(yTop-yBot)*(t/endT),R0*Math.sin(th)));
+  }
+  pathCtl.push(new V3(9,7,45),new V3(2,5,33),new V3(0,4,21));
+})();
+const curve=new THREE.CatmullRomCurve3(pathCtl,false,'centripetal');
+const L=curve.getLength();
+const SAMPLES=900;
+const pathPts=curve.getSpacedPoints(SAMPLES);
+const LAST=pathPts.length-1;
+const END=pathPts[LAST];
+
+// yellow dashed guide line
+(function(){
+  const step=3.4,nD=Math.floor(L/step);
+  const m=new THREE.InstancedMesh(new THREE.BoxGeometry(0.34,0.34,1.9),new THREE.MeshBasicMaterial({color:0xffd21f}),nD);
+  const dm=new THREE.Object3D();
+  for(let i=0;i<nD;i++){const u=Math.min(1,(i*step)/L);const p=curve.getPointAt(u);if(u<0.03)continue;const off=u>0.97?1.2:2.6;p.y-=off;dm.position.copy(p);dm.lookAt(p.clone().add(curve.getTangentAt(u)));dm.updateMatrix();m.setMatrixAt(i,dm.matrix);}
+  scene.add(m);
+})();
+
+// gold rings, one per info item
+const RING_U=[0.14,0.31,0.48,0.65,0.82];
+const rings=RING_U.map((u,i)=>{
+  const p=curve.getPointAt(u),tg=curve.getTangentAt(u);
+  const mat=new THREE.MeshBasicMaterial({color:0xffc400,transparent:true,opacity:1});
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(6,0.5,12,56),mat);
+  ring.position.copy(p);ring.lookAt(p.clone().add(tg));scene.add(ring);
+  const lt=canvasTex(320,96,(g,w,h)=>{g.fillStyle='rgba(6,18,31,.82)';g.beginPath();if(g.roundRect)g.roundRect(4,8,w-8,h-16,24);else g.rect(4,8,w-8,h-16);g.fill();g.fillStyle='#ffc93c';g.font='700 44px "Noto Sans TC",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(NUMS[i]+' '+INFO[i].k,w/2,h/2+2);});
+  const label=new THREE.Sprite(new THREE.SpriteMaterial({map:lt,transparent:true,depthWrite:false}));
+  label.position.copy(p).add(new V3(0,9,0));label.scale.set(12,3.6,1);scene.add(label);
+  return {p,mat,label,idx:Math.round(u*SAMPLES)};
+});
+
+/* ---------- Game state ---------- */
+const S={pos:new V3(),yaw:0,pitch:0,roll:0,speed:14,progress:0,found:[],time:0,running:false,done:false,warnT:0};
+function spawnAt(idx){
+  idx=Math.max(0,Math.min(LAST-4,idx));
+  const p=pathPts[idx],d=pathPts[idx+4].clone().sub(p).normalize();
+  S.pos.copy(p);S.yaw=Math.atan2(-d.x,-d.z);S.pitch=Math.asin(Math.max(-1,Math.min(1,d.y)));S.roll=0;
+}
+function resetGame(){
+  S.progress=0;S.found=INFO.map(()=>null);S.time=0;S.done=false;S.speed=14;S.warnT=0;
+  rings.forEach(r=>{r.mat.color.set(0xffc400);r.mat.opacity=1;r.label.visible=true;});
+  INFO.forEach((it,i)=>{const li=$('li'+i);li.className='';li.querySelector('.v').textContent='穿越金環 '+NUMS[i]+' 解鎖';});
+  $('count').textContent='0 / 5';
+  spawnAt(0);
+}
+resetGame();
+
+function unlock(i,perfect){
+  if(S.found[i])return;
+  S.found[i]=perfect?'perfect':'pass';
+  const li=$('li'+i);li.className='on'+(perfect?' perfect':'');li.querySelector('.v').textContent=INFO[i].v;
+  rings[i].mat.color.set(perfect?0x2fd3bf:0x8fb0c4);rings[i].mat.opacity=0.45;rings[i].label.visible=false;
+  $('count').textContent=S.found.filter(Boolean).length+' / 5';
+  const t=$('toast');$('tTag').textContent=(perfect?'完美穿越 ':'已解鎖 ')+NUMS[i];$('tK').textContent=INFO[i].k;$('tV').textContent=INFO[i].v;
+  t.hidden=false;t.classList.remove('show');void t.offsetWidth;t.classList.add('show');
+}
+function fmt(s){s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+
+function finish(){
+  S.done=true;S.running=false;
+  INFO.forEach((_,i)=>{if(!S.found[i])unlock(i,false);});
+  const rings=S.found.filter(f=>f==='perfect').length;
+  const flight=Number((Math.round(S.time*10)/10).toFixed(1));
+  const score=Number((flight+(5-rings)*PENALTY).toFixed(1));
+  $('sScore').textContent=fmt1(score);
+  $('sTime').textContent=fmt1(flight);
+  $('sPerfect').textContent=rings+'/5';
+  const best=lsGet(LS_BEST,null);
+  if(!best||score<best.score)lsSet(LS_BEST,{score,flight,rings});
+  const note=$('winNote');$('myRank').hidden=true;
+  if(!LB.myName){note.className='note';note.textContent='這次是試飛，沒有上榜。想上排行榜的話，下一輪起飛前填上名字。';}
+  else if(!SB_ON){note.className='note';note.textContent='排行榜還沒接上資料庫，成績只記在這台裝置。';}
+  else{note.className='note';note.textContent='成績上傳中…';submitScore(LB.myName,score,flight,rings);}
+  renderBoards();
+  $('sumTable').innerHTML=INFO.map(it=>`<tr><td>${it.k}</td><td>${it.v}</td></tr>`).join('');
+  setTimeout(()=>{$('endOv').hidden=false;$('btnAgain').focus();},900);
+}
+
+/* ---------- Input ---------- */
+const keys={};
+const MAP={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',ShiftLeft:'boost',ShiftRight:'boost',Space:'brake'};
+window.addEventListener('keydown',e=>{
+  if(e.target&&e.target.tagName==='INPUT')return;
+  if(MAP[e.code]){keys[MAP[e.code]]=true;e.preventDefault();}
+  if(e.code==='KeyR'&&S.running)backToPath();
+  
+});
+window.addEventListener('keyup',e=>{if(e.target&&e.target.tagName==='INPUT')return;if(MAP[e.code]){keys[MAP[e.code]]=false;e.preventDefault();}});
+window.addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
+
+function backToPath(){spawnAt(Math.max(0,S.progress-6));S.speed=12;}
+$('btnReset').addEventListener('click',()=>{if(S.running)backToPath();$('btnReset').blur();});
+
+const coarse=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
+const joy={x:0,y:0,id:null,cx:0,cy:0};
+if(coarse){
+  $('joy').hidden=false;$('tbtns').hidden=false;$('touchNote').hidden=false;document.querySelector('#startOv .keys').hidden=true;
+  const jz=$('joy'),knob=$('knob');
+  const move=e=>{let dx=e.clientX-joy.cx,dy=e.clientY-joy.cy;const m=Math.hypot(dx,dy),R=52;if(m>R){dx*=R/m;dy*=R/m;}joy.x=dx/R;joy.y=dy/R;knob.style.transform=`translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`;};
+  jz.addEventListener('pointerdown',e=>{joy.id=e.pointerId;try{jz.setPointerCapture(e.pointerId);}catch(_){}const r=jz.getBoundingClientRect();joy.cx=r.left+r.width/2;joy.cy=r.top+r.height/2;move(e);e.preventDefault();});
+  jz.addEventListener('pointermove',e=>{if(e.pointerId===joy.id)move(e);});
+  const end=e=>{if(e.pointerId===joy.id){joy.id=null;joy.x=joy.y=0;knob.style.transform='translate(-50%,-50%)';}};
+  jz.addEventListener('pointerup',end);jz.addEventListener('pointercancel',end);
+  const hold=(id,k)=>{const b=$(id);b.addEventListener('pointerdown',e=>{keys[k]=true;e.preventDefault();});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>{keys[k]=false;}));};
+  hold('tBoost','boost');hold('tBrake','brake');
+  $('tReset').addEventListener('click',()=>{if(S.running)backToPath();});
+}
+
+function start(){$('startOv').hidden=true;$('endOv').hidden=true;resetGame();S.running=true;}
+function setStartLabel(){$('btnStart').textContent=LB.myName?'起飛（上排行榜）':'試飛（不上榜）';}
+$('myName').addEventListener('input',()=>{LB.myName=$('myName').value.replace(/\s+/g,' ').trim().slice(0,12);lsSet(LS_NAME,LB.myName);setStartLabel();renderBoards();});
+$('myName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();start();}});
+(function(){const nm=lsGet(LS_NAME,'');if(typeof nm==='string'&&nm){LB.myName=nm;$('myName').value=nm;}setStartLabel();})();
+
+/* ---------------- Supabase 排行榜 ---------------- */
+function sbHeaders(extra){const h={apikey:SB_KEY,Authorization:'Bearer '+SB_KEY};if(extra)Object.assign(h,extra);return h;}
+function sbError(status,body){
+  const txt=String(body||'');let msg;
+  if(status===404||txt.indexOf('does not exist')!==-1||txt.indexOf('PGRST205')!==-1)msg='找不到資料表 flight_scores，請回 Supabase 的 SQL Editor 把 schema.sql 再跑一次';
+  else if(status===401)msg='金鑰不正確，請檢查 Secrets 的 SUPABASE_ANON_KEY';
+  else if(status===403)msg='權限被擋，請確認 schema.sql 裡的兩個 policy 有建立成功';
+  else if(status===400)msg='成績被資料庫擋下（名字太長或數值不合理）';
+  else msg='HTTP '+status;
+  const e=new Error(msg);e.detail=txt.slice(0,300);return e;
+}
+function submitScore(name,score,flight,rings){
+  fetch(SB_URL+'/rest/v1/flight_scores',{method:'POST',headers:sbHeaders({'Content-Type':'application/json',Prefer:'return=minimal'}),
+    body:JSON.stringify({board:BOARD_ID,name:name,score:score,flight:flight,rings:rings})})
+  .then(res=>{if(!res.ok)return res.text().then(t=>{throw sbError(res.status,t);});
+    $('winNote').className='note ok';$('winNote').textContent='成績已上排行榜 ✓';loadBoard(true);})
+  .catch(e=>{$('winNote').className='note err';$('winNote').textContent='成績沒送出去：'+(e&&e.message?e.message:'連不上資料庫');if(e&&e.detail)console.error('Supabase:',e.detail);});
+}
+function setStatus(t){$('lbStatus1').textContent=t;$('lbStatus2').textContent=t;}
+function loadBoard(showRank){
+  if(!SB_ON){setStatus('排行榜尚未設定連線');$('lbEmpty1').textContent=$('lbEmpty2').textContent='排行榜還沒接上資料庫，請參考 README 設定 Supabase。';return;}
+  const url=SB_URL+'/rest/v1/flight_scores?board=eq.'+encodeURIComponent(BOARD_ID)+'&select=name,score,rings&order=score.asc,created_at.asc&limit=1000';
+  fetch(url,{headers:sbHeaders()})
+  .then(res=>{if(!res.ok)return res.text().then(t=>{throw sbError(res.status,t);});return res.json();})
+  .then(data=>{
+    const seen={},out=[];
+    (data||[]).forEach(r=>{if(!r||typeof r.name!=='string'||seen[r.name])return;seen[r.name]=1;out.push(r);});
+    LB.all=out;LB.rows=out.slice(0,30);renderBoards();
+    if(showRank&&LB.myName){const i=out.findIndex(r=>r.name===LB.myName);if(i>=0){$('myRank').innerHTML='你目前排第 <b>'+(i+1)+'</b> 名（共 '+out.length+' 人）';$('myRank').hidden=false;}}
+    setStatus('更新於 '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+  })
+  .catch(e=>{setStatus('排行榜讀取失敗：'+(e&&e.message?e.message:'連不上資料庫'));if(e&&e.detail)console.error('Supabase:',e.detail);});
+}
+function renderBoards(){
+  [1,2].forEach(n=>{
+    const body=$('lbBody'+n);body.innerHTML='';
+    $('lbCount'+n).textContent=LB.all.length?LB.all.length+' 人上榜':'';
+    $('lbEmpty'+n).hidden=LB.rows.length>0;
+    LB.rows.forEach((r,i)=>{
+      const tr=document.createElement('tr');if(LB.myName&&r.name===LB.myName)tr.className='me';
+      const cells=[[String(i+1),'rk'],[r.name+(LB.myName&&r.name===LB.myName?'（你）':''),''],[r.rings+'/5','num'],[fmt1(Number(r.score)),'num']];
+      cells.forEach(([t,c])=>{const td=document.createElement('td');td.textContent=t;if(c)td.className=c;tr.appendChild(td);});
+      body.appendChild(tr);
+    });
+  });
+}
+document.querySelectorAll('.lbRefresh').forEach(b=>b.addEventListener('click',()=>loadBoard(!$('endOv').hidden)));
+loadBoard(false);
+setInterval(()=>{if(!S.running)loadBoard(!$('endOv').hidden);},10000);
+$('btnStart').addEventListener('click',start);
+$('btnAgain').addEventListener('click',()=>{$('endOv').hidden=true;$('startOv').hidden=false;$('myName').focus();});
+
+/* ---------- Loop ---------- */
+const fwd=new V3(),tmp=new V3();
+let last=performance.now(),idleT=0;
+function showWarn(msg){$('warn').textContent=msg;S.warnT=1.2;}
+
+function step(dt){
+  const turn=(keys.left?1:0)-(keys.right?1:0)-joy.x;
+  const climb=(keys.up?1:0)-(keys.down?1:0)-joy.y;
+  S.yaw+=turn*1.15*dt;
+  S.pitch=Math.max(-1.05,Math.min(1.05,S.pitch+climb*0.9*dt));
+  const target=keys.boost?30:keys.brake?7:15;
+  S.speed+=(target-S.speed)*Math.min(1,dt*1.8);
+  S.roll+=(turn*0.42-S.roll)*Math.min(1,dt*4);
+
+  fwd.set(-Math.sin(S.yaw)*Math.cos(S.pitch),Math.sin(S.pitch),-Math.cos(S.yaw)*Math.cos(S.pitch));
+  S.pos.addScaledVector(fwd,S.speed*dt);
+
+  if(S.pos.y<1.8){S.pos.y=1.8;if(S.pitch<0)S.pitch*=0.6;if(S.progress<LAST-60)showWarn('高度過低！');}
+  if(S.pos.y>260){S.pos.y=260;showWarn('超出飛行高度');}
+  const hr=Math.hypot(S.pos.x,S.pos.z);
+  if(hr>650){S.pos.x*=650/hr;S.pos.z*=650/hr;showWarn('超出空域，請回頭');}
+
+  // building collision: push out along the shallowest side
+  for(const b0 of colliders){
+    const b={min:{x:b0.min.x-1.2,y:b0.min.y-1.2,z:b0.min.z-1.2},max:{x:b0.max.x+1.2,y:b0.max.y+1.2,z:b0.max.z+1.2}};
+    const p=S.pos;
+    if(p.x>b.min.x&&p.x<b.max.x&&p.y>b.min.y&&p.y<b.max.y&&p.z>b.min.z&&p.z<b.max.z){
+      const o=[[p.x-b.min.x,'x',b.min.x],[b.max.x-p.x,'x',b.max.x],[b.max.y-p.y,'y',b.max.y],[p.z-b.min.z,'z',b.min.z],[b.max.z-p.z,'z',b.max.z]];
+      o.sort((a,c)=>a[0]-c[0]);p[o[0][1]]=o[0][2];S.speed*=0.5;showWarn('小心大樓！');
+    }
+  }
+
+  // progress along the yellow line
+  let best=S.progress,bd=Infinity;
+  for(let i=Math.max(0,S.progress-10);i<=Math.min(LAST,S.progress+90);i++){const d=pathPts[i].distanceToSquared(S.pos);if(d<bd){bd=d;best=i;}}
+  if(bd<36*36)S.progress=Math.max(S.progress,best);
+  $('hint').hidden=!(Math.sqrt(bd)>42);
+
+  rings.forEach((r,i)=>{
+    if(S.found[i])return;
+    if(S.pos.distanceTo(r.p)<6.8)unlock(i,true);
+    else if(S.progress>r.idx+14)unlock(i,false);
+  });
+
+  if(S.progress>=LAST-40&&S.pos.distanceTo(END)<12)finish();
+  S.time+=dt;
+}
+
+function updateHUD(){
+  $('gAlt').textContent=Math.round(S.pos.y);
+  const y=S.pos.y;$('gFloor').textContent=y>=112?'RF':Math.max(1,Math.floor(y/4)+1)+'F';
+  $('gSpd').textContent=Math.round(S.speed*3.6);
+  $('gTime').textContent=fmt(S.time);
+  $('gProg').style.width=(S.progress/LAST*100).toFixed(1)+'%';
+  if(S.warnT>0){S.warnT-=1/60;$('warn').hidden=false;}else $('warn').hidden=true;
+
+  // edge arrow pointing to the yellow line when it is off-screen
+  const tgt=pathPts[Math.min(LAST,S.progress+40)];
+  tmp.copy(tgt).project(camera);
+  const behind=tmp.z>1;
+  const inView=!behind&&Math.abs(tmp.x)<0.8&&Math.abs(tmp.y)<0.75;
+  const g=$('guide');
+  if(inView||!S.running){g.hidden=true;}
+  else{
+    let x=tmp.x,yy=tmp.y;if(behind){x=-x;yy=-yy;}
+    const ang=Math.atan2(-yy*window.innerHeight,x*window.innerWidth);
+    const rx=window.innerWidth*0.36,ry=window.innerHeight*0.3;
+    g.hidden=false;
+    g.style.transform=`translate(${Math.cos(ang)*rx}px,${Math.sin(ang)*ry}px) rotate(${ang}rad)`;
+  }
+}
+
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  if(S.running)step(dt);
+  else if(!S.done){idleT+=dt;}
+  const bob=S.running?0:Math.sin(idleT*0.8)*0.02;
+  camera.position.copy(S.pos);
+  camera.rotation.set(S.pitch+bob,S.yaw+(S.running?0:Math.sin(idleT*0.3)*0.05),S.roll);
+  window.__sky.position.copy(camera.position);
+  renderer.render(scene,camera);
+  updateHUD();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+$('myName').value?$('btnStart').focus():$('myName').focus();
+})();
+</script>
+
+</body>
+</html>
