@@ -101,6 +101,7 @@ table.sum td:last-child{font-weight:700;font-family:var(--f-num),var(--f-ui);fon
 .stats div{display:flex;flex-direction:column}
 .stats b{font-family:var(--f-num);font-size:26px;color:var(--gold)}
 .stats small{font-size:12px;color:var(--dim)}
+.quote{margin:-6px 0 14px!important;font-size:13px!important;color:var(--dim)!important}.quote b{color:var(--gold);font-family:var(--f-num),var(--f-ui)}
 .fine{font-size:11px!important;color:rgba(157,183,203,.8)!important;margin-top:12px!important;margin-bottom:0!important}
 
 .card.wide{max-width:900px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px}
@@ -226,6 +227,7 @@ table.lbt tr.me td{background:rgba(47,211,191,.16);color:var(--fg);font-weight:7
     </div>
     <p class="note" id="winNote"></p>
     <table class="sum" id="sumTable"></table>
+    <p class="quote">以上條件為 <b>20260929 本行報價</b></p>
     <button class="btn" id="btnAgain" type="button">再飛一次</button>
     <p class="fine">本遊戲僅供內部教育訓練使用，非投資建議。債券價格與殖利率隨市場變動，實際條件以正式文件為準。</p>
    </div>
@@ -250,7 +252,7 @@ const INFO=[
   {k:'債券代碼',v:'WMBB26040004'},
   {k:'Offer Price',v:'94.88'},
   {k:'YTM',v:'5.51%'},
-  {k:'債券順位',v:'優先無擔保'}
+  {k:'剩餘年期',v:'9.38 年'}
 ];
 const NUMS=['①','②','③','④','⑤'];
 
